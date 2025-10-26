@@ -2,11 +2,19 @@ import streamlit as st
 import pandas as pd
 import joblib
 import json
-import os # Used to check if files exist
+import os # <-- We need this
 import streamlit.components.v1 as components 
 
+# --- 0. SET UP FILE PATHS ---
+# Get the absolute path to the directory containing this script
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Build absolute paths to all your files
+MODEL_PATH = os.path.join(APP_DIR, 'ids_model.joblib')
+COLUMNS_PATH = os.path.join(APP_DIR, 'model_columns.json')
+PCA_PLOT_PATH = os.path.join(APP_DIR, 'ids_pca_plot.png')
+
 # --- 1. DEFINE THE COLUMN NAMES (CRITICAL FOR UPLOAD) ---
-# This list MUST match the format of your sample files
 column_names = [
     'duration', 'protocol_type', 'service', 'flag', 'src_bytes', 'dst_bytes',
     'land', 'wrong_fragment', 'urgent', 'hot', 'num_failed_logins', 'logged_in',
@@ -21,16 +29,15 @@ column_names = [
 ]
 
 # --- 2. LOAD THE MODEL AND MODEL'S COLUMN LIST ---
-# Use @st.cache_resource to load this only once
 @st.cache_resource
 def load_model_and_cols():
-    # Check if files exist first
-    if not os.path.exists('ids_model.joblib') or not os.path.exists('model_columns.json'):
+    # Check if files exist using the new absolute paths
+    if not os.path.exists(MODEL_PATH) or not os.path.exists(COLUMNS_PATH):
         return None, None
     
     try:
-        model = joblib.load('ids_model.joblib')
-        with open('model_columns.json', 'r') as f:
+        model = joblib.load(MODEL_PATH)
+        with open(COLUMNS_PATH, 'r') as f:
             model_cols = json.load(f)
         return model, model_cols
     except Exception as e:
@@ -46,7 +53,7 @@ st.write('This app analyzes a file of network traffic and classifies each connec
 # Stop the app if the model files didn't load
 if model is None or model_columns is None:
     st.error("🚨 **Model files not found!** 🚨")
-    st.write("Please make sure `ids_model.joblib` and `model_columns.json` are in the same folder as `app.py`.")
+    st.write("Please make sure `ids_model.joblib` and `model_columns.json` are in the same folder as `app.py` on GitHub.")
     st.stop() # Stop the app from running further
 
 # Create tabs
@@ -60,69 +67,54 @@ with tab1:
     st.subheader("1. Download a Sample File")
     st.write("Click a button to download a sample, then upload it below.")
     
-    # Create 5 columns to hold the 10 buttons neatly
     cols = st.columns(5)
     
     for i in range(1, 11):
         file_name = f"sample_{i}.csv"
+        # Build path to the sample file
+        sample_file_path = os.path.join(APP_DIR, file_name)
         
-        # Check if the sample file exists in the folder
-        if not os.path.exists(file_name):
+        if not os.path.exists(sample_file_path):
              with cols[(i-1) % 5]:
                 st.warning(f"Missing {file_name}")
-             continue # Skip to the next loop iteration
+             continue
         
-        # If file exists, create the download button
         try:
-            with open(file_name, "rb") as f:
+            with open(sample_file_path, "rb") as f:
                 with cols[(i-1) % 5]: 
                     st.download_button(
                         label=f"Sample {i}",
                         data=f,
                         file_name=file_name,
                         mime="text/csv",
-                        key=f"btn_{i}" # Add a unique key for each button
+                        key=f"btn_{i}"
                     )
         except Exception as e:
              with cols[(i-1) % 5]:
                 st.error(f"Error reading {file_name}")
 
-    st.markdown("---") # Add a separator
+    st.markdown("---") 
     
-    # --- Create the file uploader ---
     st.subheader("2. Upload Your File")
     uploaded_file = st.file_uploader("Upload your CSV or TXT file here", type=["csv", "txt"])
     
     if uploaded_file is not None:
-        # File is uploaded
         st.success(f"File '{uploaded_file.name}' uploaded successfully!")
         
         try:
-            # Read the uploaded file into a DataFrame
             df_upload = pd.read_csv(uploaded_file, header=None, names=column_names)
-
-            # --- Start Processing ---
             st.write("Scanning file for threats...")
             
-            # Drop columns the model wasn't trained on
             X_upload = df_upload.drop(['attack', 'difficulty'], axis=1, errors='ignore')
-            
-            # One-hot encode the categorical features
             X_upload_processed = pd.get_dummies(X_upload, columns=['protocol_type', 'service', 'flag'])
-            
-            # Align columns with the model's training data (CRITICAL)
             X_upload_final = X_upload_processed.reindex(columns=model_columns, fill_value=0)
             
-            # --- Make Predictions ---
             predictions = model.predict(X_upload_final)
             
-            # --- Show the Results ---
             st.header("Scan Results:")
-            
             df_upload['Prediction'] = predictions
             df_upload['Result'] = df_upload['Prediction'].apply(lambda x: '🚨 ATTACK' if x == 1 else '✅ NORMAL')
             
-            # Show summary
             num_attacks = (df_upload['Prediction'] == 1).sum()
             num_total = len(df_upload)
             
@@ -131,30 +123,13 @@ with tab1:
             else:
                 st.success(f"**Scan Complete: No attacks detected** in {num_total} connections.")
             
-            # --- !! CORRECTED GRAPH CODE !! ---
             st.subheader(f"Result Breakdown for '{uploaded_file.name}'")
-            
-            # Get the counts for each category
             counts_dict = df_upload['Result'].value_counts().to_dict()
-            
-            # Get counts, defaulting to 0 if a category is missing
             attack_count = counts_dict.get('🚨 ATTACK', 0)
             normal_count = counts_dict.get('✅ NORMAL', 0)
-
-            # Create a new DataFrame in the correct shape for coloring
-            # This DataFrame will have TWO columns, even if one is 0
-            chart_data = pd.DataFrame({
-                "🚨 ATTACK": [attack_count],
-                "✅ NORMAL": [normal_count]
-            })
-            
-            # Now, plot this DataFrame and apply the colors
-            # The 2 colors will match the 2 columns
+            chart_data = pd.DataFrame({"🚨 ATTACK": [attack_count], "✅ NORMAL": [normal_count]})
             st.bar_chart(chart_data, color=["#FF4B4B", "#00F2A9"])
             
-            # --- END OF CORRECTION ---
-            
-            # Show the detailed table
             st.write("Detailed Report:")
             st.dataframe(df_upload[['attack', 'Result']])
 
@@ -166,37 +141,32 @@ with tab1:
 with tab2:
     st.header("Project Dashboard (Analysis of Test Data)")
     
-    # --- 1. YOUR POWER BI SHARE LINK ---
-    # This link is correct. Keep it as-is.
-    power_bi_share_link = "YOUR_POWER_BI_SHARE_LINK_HERE" # 👈 (You already did this)
-    
+    # --- 1. REPLACE THIS LINK ---
+    power_bi_share_link = "https://app.powerbi.com/groups/me/reports/96676770-d58b-449c-aa35-a289346a7ed6/75ff2635efa1b0d42771?experience=power-bi" 
     
     st.markdown(f"**[Click Here to Open the Full Interactive Dashboard]({power_bi_share_link})**")
-    
     st.info("ⓘ **Note:** This link goes to a secure Power BI report. You may need to log in with a school/organization account to view it.")
-    st.markdown("---") # Separator
+    st.markdown("---") 
     
     st.subheader("Dashboard Preview:")
     
-    # --- 2. THE LOCAL SCREENSHOT (THE FIX) ---
-    # Put your screenshot file (e.g., "dashboard.png") in the same folder as your app.py
-    # and write its name here.
-    
-    screenshot_file = "Dashboard.png.png" # 👈 **REPLACE THIS FILENAME**
+    # --- 2. REPLACE THIS FILENAME ---
+    # Make sure this filename EXACTLY matches your screenshot file in the same folder
+    screenshot_file = "Dashboard.png" # 👈 (I fixed your .png.png typo)
+    screenshot_path = os.path.join(APP_DIR, screenshot_file)
 
     try:
-        st.image(screenshot_file, caption="This is a preview of the full dashboard.")
+        st.image(screenshot_path, caption="This is a preview of the full dashboard.")
     except FileNotFoundError:
         st.error(f"Error: Screenshot file '{screenshot_file}' not found.")
-        st.warning("Please add your dashboard screenshot to the app folder.")
+        st.warning(f"Please add '{screenshot_file}' to your 'nsl-kdd' folder on GitHub.")
 
 # --- TAB 3: THE PCA PLOT ---
 with tab3:
     st.header("Why the Model Works (PCA Visualization)")
     
-    # Check if the PCA plot file exists
-    if not os.path.exists('ids_pca_plot.png'):
+    if not os.path.exists(PCA_PLOT_PATH):
         st.error("🚨 **Image file not found!** 🚨")
-        st.write("Please make sure `ids_pca_plot.png` is in the same folder as `app.py`.")
+        st.write(f"Please make sure `ids_pca_plot.png` is in your 'nsl-kdd' folder on GitHub.")
     else:
-        st.image('ids_pca_plot.png', caption='PCA Plot: Attacks (red) vs. Normal (blue)')
+        st.image(PCA_PLOT_PATH, caption='PCA Plot: Attacks (red) vs. Normal (blue)')
