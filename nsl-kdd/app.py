@@ -141,7 +141,7 @@ with tab1:
 with tab2:
     st.header("Project Dashboard (Analysis of Test Data)")
     
-    # --- 1. REPLACE THIS LINK ---
+    # --- 1. YOUR POWER BI SHARE LINK ---
     power_bi_share_link = "https://app.powerbi.com/groups/me/reports/96676770-d58b-449c-aa35-a289346a7ed6/75ff2635efa1b0d42771?experience=power-bi" 
     
     st.markdown(f"**[Click Here to Open the Full Interactive Dashboard]({power_bi_share_link})**")
@@ -150,23 +150,29 @@ with tab2:
     
     st.subheader("Dashboard Preview:")
     
-    # --- 2. REPLACE THIS FILENAME ---
-    # Make sure this filename EXACTLY matches your screenshot file in the same folder
-    screenshot_file = "Dashboard.png" # 👈 (I fixed your .png.png typo)
+    # --- 2. YOUR SCREENSHOT FILENAME ---
+    # Make sure this filename EXACTLY matches your screenshot on GitHub (it's case-sensitive!)
+    screenshot_file = "Dashboard.png.png" # 👈 Check this name!
     screenshot_path = os.path.join(APP_DIR, screenshot_file)
 
-    try:
+    # --- THIS IS THE FIX ---
+    # We check if the file exists BEFORE trying to show it
+    if os.path.exists(screenshot_path):
         st.image(screenshot_path, caption="This is a preview of the full dashboard.")
-    except FileNotFoundError:
-        st.error(f"Error: Screenshot file '{screenshot_file}' not found.")
-        st.warning(f"Please add '{screenshot_file}' to your 'nsl-kdd' folder on GitHub.")
+    else:
+        # If it doesn't exist, show a clear error
+        st.error(f"Error: Screenshot file not found.")
+        st.warning(f"Please make sure your screenshot file (named '{screenshot_file}') is in your 'nsl-kdd' folder on GitHub.")
 
-# --- TAB 3: THE PCA PLOT ---
+# --- TAB 3: THE PCA PLOT (WITH THE SAME FIX) ---
 with tab3:
     st.header("Why the Model Works (PCA Visualization)")
     
-    if not os.path.exists(PCA_PLOT_PATH):
+    # --- THIS IS THE FIX ---
+    # We check if the file exists BEFORE trying to show it
+    if os.path.exists(PCA_PLOT_PATH):
+        st.image(PCA_PLOT_PATH, caption='PCA Plot: Attacks (red) vs. Normal (blue)')
+    else:
+        # If it doesn't exist, show a clear error
         st.error("🚨 **Image file not found!** 🚨")
         st.write(f"Please make sure `ids_pca_plot.png` is in your 'nsl-kdd' folder on GitHub.")
-    else:
-        st.image(PCA_PLOT_PATH, caption='PCA Plot: Attacks (red) vs. Normal (blue)')
